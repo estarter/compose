@@ -52,7 +52,7 @@ def make_service_dict(name, service_dict, working_dir, filename=None):
         config.ConfigFile(filename=filename, config={}),
         environment=Environment.from_env_file(working_dir)
     )
-    return config.process_service(resolver.run())
+    return config.process_service(resolver.run(), resolver.environment)
 
 
 def service_sort(services):
@@ -4414,7 +4414,7 @@ class SerializeTest(unittest.TestCase):
         }
         processed_service = config.process_service(config.ServiceConfig(
             '.', 'test', 'test', service_dict
-        ))
+        ), environment={})
         denormalized_service = denormalize_service_dict(processed_service, V2_3)
         assert denormalized_service['healthcheck']['interval'] == '100s'
         assert denormalized_service['healthcheck']['timeout'] == '30s'

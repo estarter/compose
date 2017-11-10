@@ -9,6 +9,7 @@ import re
 from collections import namedtuple
 
 import six
+from docker.types import Mount
 from docker.utils.ports import build_port_bindings
 
 from ..const import COMPOSEFILE_V1 as V1
@@ -131,6 +132,82 @@ def normalize_path_for_engine(path):
         path = '/' + drive.lower().rstrip(':') + tail
 
     return path.replace('\\', '/')
+
+
+class MountSpec(object):
+    options_map = {
+        'volume': {
+            'nocopy': 'no_copy'
+        },
+        'bind': {
+            'propagation': 'propagation'
+        }
+    }
+    _fields = ['type', 'source', 'target', 'read_only', 'consistency']
+
+    def __init__(self, type, source=None, target=None, read_only=None, consistency=None, **kwargs):
+        self.type = type
+        self.source = source
+        self.target = target
+        self.read_only = read_only
+        self.consistency = consistency
+        self.options = None
+        if self.type in kwargs:
+            self.options = kwargs[self.type]
+
+    def as_volume_spec(self):
+        return VolumeSpec(
+            external=self.source, internal=self.target, mode='ro' if self.read_only else 'rw'
+        )
+
+    def as_mount_object(self):
+        kwargs = {}
+        if self.options:
+            for option, sdk_name in self.options_map[self.type].items():
+                if option in self.options:
+                    kwargs[sdk_name] = self.options[option]
+
+        return Mount(
+            type=self.type, target=self.target, source=self.source, read_only=self.read_only,
+            consistency=self.consistency, **kwargs
+        )
+
+    def legacy_repr(self):
+        return self.as_volume_spec().repr()
+
+    def repr(self):
+        res = {}
+        for field in self._fields:
+            if getattr(self, field, None):
+                res[field] = getattr(self, field)
+        if self.options:
+            res[self.type] = self.options
+        return res
+
+    @property
+    def is_named_volume(self):
+        return self.type == 'volume' and self.source
+
+    @classmethod
+    def parse(cls, volume_config, normalize=False):
+        # dict notation
+        if isinstance(volume_config, dict):
+            if normalize and 'source' in volume_config:
+                volume_config['source'] = normalize_path_for_engine(volume_config['source'])
+            return cls(**volume_config)
+
+        # Legacy notation
+        volume_spec = VolumeSpec.parse(volume_config, normalize)
+        type = 'bind'
+        if volume_spec.is_named_volume:
+            type = 'volume'
+        elif volume_spec.external and volume_spec.external.startswith('\\\\.\\pipe'):
+            type = 'npipe'
+
+        return cls(
+            type=type, source=volume_spec.external, target=volume_spec.internal,
+            read_only=volume_spec.mode == 'ro'
+        )
 
 
 class VolumeSpec(namedtuple('_VolumeSpec', 'external internal mode')):
